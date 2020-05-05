@@ -14,6 +14,7 @@ from ..memory import LazySMemory, Memory
 from ...core.smtlib import Operators, Constant, issymbolic
 from ...core.smtlib import visitors
 from ...core.smtlib.solver import Z3Solver
+from ...core.state import Concretize
 from ...utils.emulate import ConcreteUnicornEmulator
 from ...utils.event import Eventful
 from ...utils.fallback_emulator import UnicornEmulator
@@ -89,12 +90,13 @@ class ConcretizeRegister(CpuException):
     Raised when a symbolic register needs to be concretized.
     """
 
-    def __init__(self, cpu, reg_name, message=None, policy="MINMAX"):
+    def __init__(self, cpu, reg_name, message=None, policy="MINMAX", setstate=None):
         self.message = message if message else f"Concretizing {reg_name}"
 
         self.cpu = cpu
         self.reg_name = reg_name
         self.policy = policy
+        self.setstate = setstate
 
 
 class ConcretizeArgument(CpuException):
@@ -374,18 +376,26 @@ class Abi:
             descriptors = self.get_arguments()
             src = next(islice(descriptors, idx, idx + 1))
 
+            def setstate(state, _value):
+                """ Roll back PC to redo last instruction """
+                state.cpu.PC = state.cpu._last_pc
+
             msg = "Concretizing due to model invocation"
             if isinstance(src, str):
-                raise ConcretizeRegister(self._cpu, src, msg)
+                raise ConcretizeRegister(self._cpu, src, msg, setstate=setstate)
             else:
-                raise ConcretizeMemory(self._cpu.memory, src, self._cpu.address_bit_size, msg)
+                raise ConcretizeMemory(
+                    self._cpu.memory, src, self._cpu.address_bit_size, msg, setstate=setstate
+                )
+        except Concretize as e:
+            raise e
         else:
             if result is not None:
                 self.write_result(result)
 
             self.ret()
 
-        return result
+            return result
 
 
 platform_logger = logging.getLogger("manticore.platforms.platform")

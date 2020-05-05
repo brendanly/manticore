@@ -156,6 +156,8 @@ class State(StateBase):
 
             def setstate(state, value):
                 state.cpu.write_register(setstate.e.reg_name, value)
+                if setstate.e.setstate is not None:
+                    setstate.e.setstate(state, value)
 
             setstate.e = e
             raise Concretize(str(e), expression=expression, setstate=setstate, policy=e.policy)
@@ -164,6 +166,8 @@ class State(StateBase):
 
             def setstate(state, value):
                 state.cpu.write_int(setstate.e.address, value, setstate.e.size)
+                if setstate.e.setstate is not None:
+                    setstate.e.setstate(state, value)
 
             setstate.e = e
             raise Concretize(str(e), expression=expression, setstate=setstate, policy=e.policy)
