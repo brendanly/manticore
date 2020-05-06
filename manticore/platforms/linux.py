@@ -520,7 +520,6 @@ class SymbolicSocket(Socket):
         state["symb_name"] = self.symb_name
         state["recv_pos"] = self.recv_pos
         state["max_recv_symbolic"] = self.max_recv_symbolic
-        state["_constraints"] = self._constraints
         state["_symb_len"] = self._symb_len
         state["fd"] = self.fd
         return state
@@ -531,7 +530,6 @@ class SymbolicSocket(Socket):
         self.symb_name = state["symb_name"]
         self.recv_pos = state["recv_pos"]
         self.max_recv_symbolic = state["max_recv_symbolic"]
-        self._constraints = state["_constraints"]
         self._symb_len = state["_symb_len"]
         self.fd = state["fd"]
 
@@ -828,6 +826,8 @@ class Linux(Platform):
 
         # fetch each file descriptor (Socket or File())
         self.files = []
+        # NOTE(ek): This might not be consistent if files are closed/opened
+        #   in certain orders where there are holes in the fd list numbering
         for ty, file_or_socket in state["files"]:
             self.files.append(file_or_socket)
 
@@ -3124,6 +3124,10 @@ class SLinux(Linux):
         self.symbolic_files = state["symbolic_files"]
         self.net_accepts = state["net_accepts"]
         super().__setstate__(state)
+        # Add constraints to symbolic sockets
+        for file_or_socket in self.files:
+            if isinstance(file_or_socket, SymbolicSocket):
+                file_or_socket._constraints = self._constraints
 
     def _sys_open_get_file(self, filename: str, flags: int) -> File:
         if filename in self.symbolic_files:
@@ -3318,8 +3322,8 @@ class SLinux(Linux):
             return ret
 
         # TODO: maybe combine name with addr?
-        self.net_accepts += 1
         sock = SymbolicSocket(self.constraints, f"SymbSocket_{self.net_accepts}", net=True)
+        self.net_accepts += 1
         fd = self._open(sock)
         sock.fd = fd
         return fd
