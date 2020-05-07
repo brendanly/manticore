@@ -1,5 +1,6 @@
+from .memory import MemoryException
+from .cpu.abstractcpu import CpuException
 from ..core.state import StateBase, TerminateState
-from ..native.memory import MemoryException
 
 
 class State(StateBase):
@@ -23,7 +24,7 @@ class State(StateBase):
         """
         try:
             result = self._platform.execute()
-        except MemoryException as e:
+        except (CpuException, MemoryException) as e:
             raise TerminateState(str(e), testcase=True)
 
         # Remove when code gets stable?
