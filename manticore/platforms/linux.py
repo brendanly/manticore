@@ -22,13 +22,27 @@ from elftools.elf.sections import SymbolTableSection
 
 from . import linux_syscalls
 from .linux_syscall_stubs import SyscallStubs
-from ..core.state import TerminateState
+from ..core.state import TerminateState, Concretize
 from ..core.smtlib import ConstraintSet, Operators, Expression, issymbolic, ArrayProxy
 from ..core.smtlib.solver import Z3Solver
 from ..exceptions import SolverError
-from ..native.cpu.abstractcpu import Cpu, Syscall, ConcretizeArgument, Interruption
+from ..native.cpu.abstractcpu import (
+    Cpu,
+    Syscall,
+    ConcretizeArgument,
+    Interruption,
+    ConcretizeRegister,
+)
 from ..native.cpu.cpufactory import CpuFactory
-from ..native.memory import SMemory32, SMemory64, Memory32, Memory64, LazySMemory32, LazySMemory64
+from ..native.memory import (
+    SMemory32,
+    SMemory64,
+    Memory32,
+    Memory64,
+    LazySMemory32,
+    LazySMemory64,
+    ConcretizeMemory,
+)
 from ..native.state import State
 from ..platforms.platform import Platform, SyscallNotImplemented, unimplemented
 
@@ -2583,25 +2597,22 @@ class Linux(Platform):
                     self.procs[procid].PC += self.procs[procid].instruction.size
                     self.awake(procid)
 
-    def execute(self):
+    def execute(self) -> bool:
         """
         Execute one cpu instruction in the current thread (only one supported).
-        :rtype: bool
-        :return: C{True}
 
         :todo: This is where we could implement a simple schedule.
         """
+        # Check for Kernel-like exceptions
         try:
             self.current.execute()
             self.clocks += 1
             if self.clocks % 10000 == 0:
                 self.check_timers()
                 self.sched()
-        except (Interruption, Syscall) as e:
+        except (Interruption, Syscall):
             try:
                 self.syscall()
-                if hasattr(e, "on_handled"):
-                    e.on_handled()
             except RestartSyscall:
                 pass
 
@@ -3019,6 +3030,29 @@ class SLinux(Linux):
         self.random = 0
         self.symbolic_files = symbolic_files
         super().__init__(programs, argv=argv, envp=envp, disasm=disasm)
+
+    def execute(self) -> bool:
+        # Check for symbolic-execution-related exceptions
+        try:
+            return super().execute()
+        except ConcretizeRegister as e:
+            expression = self.current.read_register(e.reg_name)
+            e_reg_name = e.reg_name
+
+            def setstate(state: State, value: int):
+                state.cpu.write_register(e_reg_name, value)
+
+            raise Concretize(str(e), expression=expression, setstate=setstate, policy=e.policy)
+
+        except ConcretizeMemory as e:
+            expression = self.current.read_int(e.address, e.size)
+            e_addr = e.address
+            e_size = e.size
+
+            def setstate(state: State, value: int):
+                state.cpu.write_int(e_addr, value, e_size)
+
+            raise Concretize(str(e), expression=expression, setstate=setstate, policy=e.policy)
 
     def _mk_proc(self, arch):
         if arch in {"i386", "armv7"}:

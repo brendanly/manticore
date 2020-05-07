@@ -3,10 +3,11 @@ from . import cgcrandom
 # TODO use cpu factory
 from ..native.cpu.x86 import I386Cpu
 from ..native.cpu.abstractcpu import Interruption, ConcretizeRegister, ConcretizeArgument
-from ..native.memory import SMemory32, Memory32
+from ..native.memory import SMemory32, Memory32, ConcretizeMemory
 from ..core.smtlib import *
-from ..core.state import TerminateState
+from ..core.state import TerminateState, Concretize
 from ..binary import CGCElf
+from ..native.state import State
 from ..platforms.platform import Platform
 import logging
 import random
@@ -916,11 +917,9 @@ class Decree(Platform):
                     self.procs[procid].PC += self.procs[procid].instruction.size
                     self.awake(procid)
 
-    def execute(self):
+    def execute(self) -> bool:
         """
         Execute one cpu instruction in the current thread (only one supported).
-        :rtype: bool
-        :return: C{True}
 
         :todo: This is where we could implement a simple schedule.
         """
@@ -960,6 +959,28 @@ class SDecree(Decree):
         self.random = 0
         self._constraints = constraints
         super().__init__(programs)
+
+    def execute(self) -> bool:
+        try:
+            return super().execute()
+        except ConcretizeRegister as e:
+            expression = self.current.read_register(e.reg_name)
+            e_reg_name = e.reg_name
+
+            def setstate(state: State, value: int):
+                state.cpu.write_register(e_reg_name, value)
+
+            raise Concretize(str(e), expression=expression, setstate=setstate, policy=e.policy)
+
+        except ConcretizeMemory as e:
+            expression = self.current.read_int(e.address, e.size)
+            e_addr = e.address
+            e_size = e.size
+
+            def setstate(state: State, value: int):
+                state.cpu.write_int(e_addr, value, e_size)
+
+            raise Concretize(str(e), expression=expression, setstate=setstate, policy=e.policy)
 
     def _mk_proc(self):
         return I386Cpu(SMemory32(self.constraints))

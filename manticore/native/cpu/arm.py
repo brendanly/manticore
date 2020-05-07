@@ -6,6 +6,8 @@ import struct
 import capstone as cs
 import operator as ops
 
+from manticore.core.state import Concretize
+
 from .abstractcpu import Abi, Cpu, Interruption, Operand, RegisterFile, SyscallAbi
 from .abstractcpu import instruction as abstract_instruction
 from .bitwise import *
@@ -635,7 +637,6 @@ class Armv7Cpu(Cpu):
         )
 
         if issymbolic(new_mode):
-            from ..state import Concretize
 
             def set_concrete_mode(state, value):
                 state.cpu.mode = value
